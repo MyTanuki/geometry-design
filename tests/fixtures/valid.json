@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "Imported exact rectangle",
+  "unit": "cm",
+  "gridMm": 5,
+  "shapes": [
+    { "id": "imported-rectangle", "type": "rectangle", "x": 10, "y": 20, "width": 30, "height": 40 }
+  ],
+  "dimensions": [],
+  "snapOptions": { "grid": true }
+}

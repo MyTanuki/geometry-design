@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#07131f">
+  <meta name="description" content="ScaleSketch เครื่องมือวาดและวัดรูปทรงเรขาคณิตแบบแม่นยำ">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307131f'/%3E%3Ccircle cx='39' cy='25' r='13' fill='none' stroke='%2338d6c5' stroke-width='5'/%3E%3Cpath d='M11 49h42M16 43l27-27' stroke='%23f5b942' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <title>ScaleSketch — Geometry workspace</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="ScaleSketch">
+        <span class="brand-mark" aria-hidden="true"><i></i></span>
+        <span>ScaleSketch</span>
+      </div>
+      <label class="document-name">
+        <span class="sr-only">ชื่อเอกสาร</span>
+        <input id="documentName" value="แบบร่างใหม่" maxlength="80">
+      </label>
+      <div class="top-actions">
+        <button id="undoBtn" class="icon-button" type="button" aria-label="ย้อนกลับ" title="ย้อนกลับ (Ctrl+Z)">↶</button>
+        <button id="redoBtn" class="icon-button" type="button" aria-label="ทำซ้ำ" title="ทำซ้ำ (Ctrl+Y)">↷</button>
+        <span class="divider"></span>
+        <label class="compact-field">หน่วย
+          <select id="unitSelect">
+            <option value="mm">mm</option>
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+            <option value="in">inch</option>
+          </select>
+        </label>
+        <label class="compact-field">กริด
+          <input id="gridSize" type="number" value="10" min="0.001" step="1">
+        </label>
+        <button id="saveBtn" class="action-button" type="button">บันทึกไฟล์</button>
+        <div class="menu-anchor">
+          <button id="moreBtn" class="icon-button" type="button" aria-label="เมนูเพิ่มเติม" aria-expanded="false" title="เมนูเพิ่มเติม">•••</button>
+          <div id="moreMenu" class="more-menu" hidden>
+            <button type="button" data-action="new">เอกสารใหม่</button>
+            <button type="button" data-action="open">เปิดไฟล์ JSON</button>
+            <button type="button" data-action="export-svg">ส่งออก SVG</button>
+            <button type="button" data-action="export-png">ส่งออก PNG</button>
+            <button type="button" data-action="clear">ล้างพื้นที่วาด</button>
+            <button type="button" data-action="help">วิธีใช้งาน</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <nav class="tool-rail" aria-label="เครื่องมือวาด">
+        <button class="tool-button active" data-tool="select" type="button" aria-pressed="true"><span>↖</span><small>เลือก</small></button>
+        <button class="tool-button" data-tool="line" type="button" aria-pressed="false"><span>╱</span><small>เส้น</small></button>
+        <button class="tool-button" data-tool="rectangle" type="button" aria-pressed="false"><span>▭</span><small>สี่เหลี่ยม</small></button>
+        <button class="tool-button" data-tool="circle" type="button" aria-pressed="false"><span>○</span><small>วงกลม</small></button>
+        <button class="tool-button" data-tool="ellipse" type="button" aria-pressed="false"><span>⬭</span><small>วงรี</small></button>
+        <div class="tool-separator"></div>
+        <button class="tool-button" data-tool="measure" type="button" aria-pressed="false"><span>↔</span><small>วัด</small></button>
+        <button class="tool-button" data-tool="perpendicular" type="button" aria-pressed="false"><span>⊥</span><small>ตั้งฉาก</small></button>
+        <button class="tool-button" data-tool="tangent" type="button" aria-pressed="false"><span>◯̸</span><small>สัมผัส</small></button>
+        <button class="tool-button" data-tool="secant" type="button" aria-pressed="false"><span>⊘</span><small>ตัดวง</small></button>
+        <button class="tool-button" data-tool="chord" type="button" aria-pressed="false"><span>⊖</span><small>คอร์ด</small></button>
+      </nav>
+
+      <section class="canvas-panel" aria-label="พื้นที่วาด">
+        <div class="canvas-toolbar">
+          <div class="mode-indicator"><span class="mode-dot"></span><strong id="modeName">เลือก</strong><span id="modeHint">คลิกวัตถุเพื่อแก้ไข</span></div>
+          <form id="coordinateForm" class="coordinate-form" aria-label="ป้อนพิกัดที่แน่นอน">
+            <label>X <input id="exactX" type="number" step="any" value="0" aria-label="พิกัด X"></label>
+            <label>Y <input id="exactY" type="number" step="any" value="0" aria-label="พิกัด Y"></label>
+            <button type="submit">วางจุด</button>
+          </form>
+          <div class="view-controls">
+            <button id="inspectorToggle" class="mini-button inspector-toggle" type="button" aria-label="เปิดแผงคุณสมบัติ" aria-expanded="false">☷</button>
+            <button id="zoomOut" class="mini-button" type="button" aria-label="ย่อ">−</button>
+            <output id="zoomValue">100%</output>
+            <button id="zoomIn" class="mini-button" type="button" aria-label="ขยาย">+</button>
+            <button id="fitView" class="mini-button text" type="button">พอดี</button>
+          </div>
+        </div>
+        <div class="drawing-surface" id="drawingSurface">
+          <svg id="drawingCanvas" tabindex="0" role="application" aria-label="พื้นที่วาดรูปเรขาคณิต">
+            <g id="gridLayer"></g>
+            <g id="shapeLayer"></g>
+            <g id="dimensionLayer"></g>
+            <g id="guideLayer"></g>
+            <g id="interactionLayer"></g>
+          </svg>
+          <div class="axis-badge"><span class="axis-x">X</span><span class="axis-y">Y</span></div>
+          <div id="snapBadge" class="snap-badge" hidden>ปลายเส้น</div>
+          <div id="angleBadge" class="angle-badge" role="tooltip" hidden>มุม 0.000° จากแนวนอน</div>
+        </div>
+        <div class="statusbar">
+          <span id="cursorPosition">X 0.000 mm&nbsp;&nbsp; Y 0.000 mm</span>
+          <span id="selectionSummary">3 วัตถุ · แบบร่างตัวอย่าง</span>
+          <span id="statusMessage">พร้อมใช้งาน</span>
+        </div>
+      </section>
+
+      <aside class="inspector" aria-label="คุณสมบัติและการสแนป">
+        <div class="inspector-tabs" role="tablist">
+          <button class="tab active" data-tab="properties" type="button" role="tab" aria-selected="true">คุณสมบัติ</button>
+          <button class="tab" data-tab="objects" type="button" role="tab" aria-selected="false">วัตถุ</button>
+        </div>
+        <section class="panel-section" id="propertiesPanel" data-tab-panel="properties">
+          <div class="section-heading"><h2>ไม่มีวัตถุที่เลือก</h2><span class="type-chip">DOCUMENT</span></div>
+          <p class="panel-empty">เลือกวัตถุบนพื้นที่วาดเพื่อดูและแก้ไขขนาดอย่างแม่นยำ</p>
+        </section>
+        <section class="panel-section object-panel" id="objectListPanel" data-tab-panel="objects" hidden>
+          <div class="section-heading"><h2>วัตถุในเอกสาร</h2><span id="objectCount" class="type-chip">0</span></div>
+          <div id="objectList" class="object-list"></div>
+        </section>
+        <section class="panel-section snap-section" data-tab-panel="properties">
+          <div class="section-heading"><h2>Snap</h2><button id="toggleAllSnaps" class="tiny-link" type="button">เปิดทั้งหมด</button></div>
+          <div class="snap-grid">
+            <label><input type="checkbox" data-snap="endpoint" checked><span class="snap-icon endpoint"></span>ปลายเส้น</label>
+            <label><input type="checkbox" data-snap="midpoint" checked><span class="snap-icon midpoint"></span>กึ่งกลาง</label>
+            <label><input type="checkbox" data-snap="center" checked><span class="snap-icon center"></span>ศูนย์กลาง</label>
+            <label><input type="checkbox" data-snap="edge" checked><span class="snap-icon edge"></span>ขอบ</label>
+            <label><input type="checkbox" data-snap="intersection" checked><span class="snap-icon intersection"></span>จุดตัด</label>
+            <label><input type="checkbox" data-snap="grid" checked><span class="snap-icon grid"></span>กริด</label>
+            <label><input type="checkbox" data-snap="perpendicular" checked><span class="snap-icon perpendicular"></span>ตั้งฉาก</label>
+            <label><input type="checkbox" data-snap="orthogonal" checked><span class="snap-icon orthogonal"></span>แนวแกน</label>
+          </div>
+        </section>
+        <section class="panel-section drawing-info" data-tab-panel="properties">
+          <div class="section-heading"><h2>เอกสาร</h2><span class="autosave"><i></i>บันทึกในเครื่อง</span></div>
+          <dl>
+            <div><dt>สเกลโมเดล</dt><dd>1:1</dd></div>
+            <div><dt>ความละเอียด</dt><dd>0.001 mm</dd></div>
+            <div><dt>พื้นที่โดยประมาณ</dt><dd id="documentBounds">420 × 260 mm</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <input id="fileInput" type="file" accept="application/json,.json" hidden>
+  <dialog id="helpDialog" class="help-dialog">
+    <form method="dialog">
+      <div class="help-heading"><h2>วิธีใช้งาน ScaleSketch</h2><button value="close" aria-label="ปิด">×</button></div>
+      <ol>
+        <li>เลือกเครื่องมือ แล้วคลิกตำแหน่งเริ่มและสิ้นสุดบนพื้นที่วาด</li>
+        <li>พิมพ์พิกัด X/Y แล้วกด “วางจุด” เมื่อต้องการค่าที่แน่นอน</li>
+        <li>กด Tab เพื่อสลับจุด Snap ที่อยู่ใกล้กัน และ Esc เพื่อกลับสู่โหมดเลือก</li>
+        <li>ในโหมดเลือก ชี้ใกล้เส้นหรือขอบสี่เหลี่ยมเพื่อดูมุมเทียบกับแนวนอน</li>
+        <li>ลากจากพื้นที่ว่างเพื่อคลุมและเลือกหลายวัตถุ จากนั้นลาก ลบ หรือทำสำเนาเป็นชุดได้</li>
+        <li>เลือกวัตถุเพื่อแก้ค่าพิกัดหรือขนาดจากแผงคุณสมบัติ</li>
+        <li>ลากด้วยปุ่มกลางหรือ Space เพื่อเลื่อนมุมมอง และหมุนล้อเมาส์เพื่อซูม</li>
+      </ol>
+      <p><kbd>Delete</kbd> ลบ · <kbd>Ctrl+Z</kbd> ย้อนกลับ · <kbd>Ctrl+Y</kbd> ทำซ้ำ</p>
+    </form>
+  </dialog>
+  <div id="liveRegion" class="sr-only" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "Must not load",
+  "unit": "cm",
+  "gridMm": 5,
+  "shapes": [
+    { "id": "duplicate", "type": "rectangle", "x": 10, "y": 20, "width": 30, "height": 40 },
+    { "id": "duplicate", "type": "circle", "cx": 30, "cy": 40, "r": 10 }
+  ],
+  "dimensions": [],
+  "snapOptions": { "grid": true }
+}

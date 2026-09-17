@@ -1,0 +1,8 @@
+.npm-cache/
+.playwright-cli/
+.sites-runtime/
+.openai/
+*.log
+# Local browser-test output; the authored static site in dist/ is tracked.
+test-results/
+playwright-report/
