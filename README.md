@@ -5,7 +5,7 @@ ScaleSketch is a standalone, local-first 2D geometry sketching web app. It is in
 ## What it does
 
 - Draws lines, rectangles, circles, and ellipses on a canonical millimetre model.
-- Measures lengths, deltas, area, perimeter, radius, and circumference without tying values to screen pixels or zoom.
+- Adds associative aligned, horizontal, vertical, angle, radius, and diameter dimensions. Measurement points use the enabled Snap choices, and dimension labels can be dragged without changing the measured geometry.
 - Snaps to endpoints, midpoints, centres, quadrants, edges, intersections, grid, horizontal/vertical axes, and perpendicular feet.
 - Constructs perpendicular, tangent, secant, and chord lines. Tangent, chord, and secant relations update when their circle changes.
 - Supports exact X/Y entry, numeric property editing, pan/zoom, undo/redo, and keyboard shortcuts.

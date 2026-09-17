@@ -80,6 +80,10 @@ button { color: inherit; }
 .mode-indicator strong { font-size: 14px; }
 .mode-indicator span:last-child { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coordinate-form { display: flex; align-items: center; gap: 5px; margin-left: auto; margin-right: 14px; }
+.measure-mode { display: flex; align-items: center; gap: 5px; margin-left: auto; color: #8fa9b5; font-size: 12px; white-space: nowrap; }
+.measure-mode[hidden] { display: none; }
+.measure-mode select { height: 28px; max-width: 132px; border: 1px solid var(--line); border-radius: 6px; background: #091b27; color: #eef7f8; padding: 0 6px; }
+.measure-mode[hidden] + .coordinate-form { margin-left: auto; }
 .coordinate-form label { display: flex; align-items: center; gap: 4px; color: #8fa9b5; font: 12px/1 "Cascadia Mono", Consolas, monospace; }
 .coordinate-form input { width: 66px; height: 28px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: #091b27; color: #eef7f8; }
 .coordinate-form button { height: 28px; padding: 0 8px; border: 1px solid rgba(52,213,197,.35); border-radius: 6px; background: rgba(52,213,197,.1); color: #bafff8; font-size: 12px; cursor: pointer; }
@@ -135,6 +139,8 @@ input:checked + .snap-icon.edge { background: var(--cyan); box-shadow: none; }
 .shape-fill { fill: rgba(41,121,147,.045); }
 .dimension-line { vector-effect: non-scaling-stroke; stroke: #d77f34; stroke-width: 1.2; fill: none; }
 .dimension-text { fill: #a8561c; font-family: "Cascadia Mono", Consolas, monospace; font-weight: 700; paint-order: stroke; stroke: var(--paper); stroke-linejoin: round; }
+.dimension-label { cursor: move; user-select: none; }
+.dimension-label:hover { fill: #e06819; }
 .guide { vector-effect: non-scaling-stroke; stroke: var(--cyan); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
 .tangent-alt { opacity: .38; }
 .snap-marker { vector-effect: non-scaling-stroke; stroke: #0aa998; stroke-width: 2; fill: rgba(52,213,197,.16); }

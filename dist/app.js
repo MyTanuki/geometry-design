@@ -80,6 +80,8 @@ const dom = {
   unitSelect: document.querySelector("#unitSelect"),
   gridSize: document.querySelector("#gridSize"),
   documentName: document.querySelector("#documentName"),
+  measureMode: document.querySelector("#measureMode"),
+  measureModeWrap: document.querySelector("#measureModeWrap"),
   exactX: document.querySelector("#exactX"),
   exactY: document.querySelector("#exactY"),
   zoomValue: document.querySelector("#zoomValue"),
@@ -170,9 +172,9 @@ function createExampleDocument() {
       {
         id: "example-dim-radius",
         type: "dimension",
+        kind: "radius",
         a: { ref: { shapeId: "example-circle", anchor: "center" }, point: { x: 370, y: 115 } },
-        b: { ref: { shapeId: "example-circle", anchor: "quadrant-0" }, point: { x: 428, y: 115 } },
-        prefix: "R "
+        b: { ref: { shapeId: "example-circle", anchor: "quadrant-0" }, point: { x: 428, y: 115 } }
       }
     ],
     snapOptions: {
@@ -193,6 +195,7 @@ const state = {
   tool: "select",
   selectedId: null,
   selectedIds: [],
+  measureKind: "aligned",
   operation: null,
   pointer: { x: 0, y: 0 },
   currentSnap: null,
@@ -368,6 +371,11 @@ function validateProject(input) {
     } else if (shape.type === "dimension") {
       validatePoint(shape.a?.point, "จุดวัด A");
       validatePoint(shape.b?.point, "จุดวัด B");
+      const kind = shape.kind || "aligned";
+      if (!["aligned", "horizontal", "vertical", "angle", "radius", "diameter"].includes(kind)) throw new Error("ชนิดมิติไม่ถูกต้อง");
+      if (kind === "angle") validatePoint(shape.vertex?.point, "จุดยอดมุม");
+      if (shape.label) validatePoint(shape.label, "ตำแหน่งข้อความมิติ");
+      if (shape.offset !== undefined && !Number.isFinite(shape.offset)) throw new Error("ตำแหน่งมิติไม่ถูกต้อง");
     } else {
       throw new Error(`ไม่รู้จักวัตถุชนิด ${shape.type}`);
     }
@@ -623,43 +631,135 @@ function renderSelection() {
   }
 }
 
+function dimensionKind(item) {
+  return item.kind || "aligned";
+}
+
+function dimensionAngle(item) {
+  const vertex = resolveRef(item.vertex);
+  const a = resolveRef(item.a);
+  const b = resolveRef(item.b);
+  if (!vertex || !a || !b) return null;
+  const va = { x: a.x - vertex.x, y: a.y - vertex.y };
+  const vb = { x: b.x - vertex.x, y: b.y - vertex.y };
+  const magnitude = Math.hypot(va.x, va.y) * Math.hypot(vb.x, vb.y);
+  if (magnitude < EPSILON) return null;
+  return Math.acos(Math.max(-1, Math.min(1, (va.x * vb.x + va.y * vb.y) / magnitude)));
+}
+
+function dimensionText(item, a, b) {
+  const kind = dimensionKind(item);
+  if (kind === "angle") {
+    const radians = dimensionAngle(item);
+    return radians === null ? "—" : `${formatNumber((radians * 180) / Math.PI, 3)}°`;
+  }
+  const value = kind === "horizontal" ? Math.abs(b.x - a.x) : kind === "vertical" ? Math.abs(b.y - a.y) : distance(a, b);
+  const prefix = kind === "radius" ? "R " : kind === "diameter" ? "⌀ " : item.prefix || "";
+  return `${prefix}${formatLength(value)}`;
+}
+
+function dimensionLabel(item, fallback) {
+  return item.label && finitePoint(item.label) ? item.label : fallback;
+}
+
+function dimensionTextNode(item, point, content) {
+  const text = svgElement("text", {
+    x: point.x,
+    y: point.y,
+    class: "dimension-text dimension-label",
+    "data-dimension-label": item.id,
+    "font-size": 12 / currentScale(),
+    "stroke-width": 4 / currentScale(),
+    "text-anchor": "middle"
+  });
+  text.textContent = content;
+  return text;
+}
+
 function renderDimensions() {
   dom.layers.dimensions.replaceChildren();
   for (const item of state.document.dimensions) {
     const a = resolveRef(item.a);
     const b = resolveRef(item.b);
     if (!a || !b) continue;
-    const length = distance(a, b);
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const safeLength = Math.max(length, EPSILON);
-    const nx = -dy / safeLength;
-    const ny = dx / safeLength;
-    const offset = 15 / currentScale();
-    const q1 = { x: a.x + nx * offset, y: a.y + ny * offset };
-    const q2 = { x: b.x + nx * offset, y: b.y + ny * offset };
+    const kind = dimensionKind(item);
     const group = svgElement("g", { "data-id": item.id });
     const selected = isSelected(item.id) ? " selected" : "";
-    group.append(
-      svgElement("line", { x1: a.x, y1: a.y, x2: q1.x, y2: q1.y, class: `dimension-line${selected}` }),
-      svgElement("line", { x1: b.x, y1: b.y, x2: q2.x, y2: q2.y, class: `dimension-line${selected}` }),
-      svgElement("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, class: `dimension-line${selected}` })
-    );
+    const lineClass = `dimension-line${selected}`;
     const tick = 4 / currentScale();
+
+    if (kind === "angle") {
+      const vertex = resolveRef(item.vertex);
+      const radians = dimensionAngle(item);
+      if (!vertex || radians === null) continue;
+      const startAngle = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+      let delta = Math.atan2(Math.sin(Math.atan2(b.y - vertex.y, b.x - vertex.x) - startAngle), Math.cos(Math.atan2(b.y - vertex.y, b.x - vertex.x) - startAngle));
+      if (Math.abs(delta) < EPSILON) continue;
+      const radius = item.radius || 20;
+      const endAngle = startAngle + delta;
+      const start = { x: vertex.x + radius * Math.cos(startAngle), y: vertex.y + radius * Math.sin(startAngle) };
+      const end = { x: vertex.x + radius * Math.cos(endAngle), y: vertex.y + radius * Math.sin(endAngle) };
+      const sweep = delta > 0 ? 1 : 0;
+      const direction = startAngle + delta / 2;
+      const label = dimensionLabel(item, { x: vertex.x + (radius + 9 / currentScale()) * Math.cos(direction), y: vertex.y + (radius + 9 / currentScale()) * Math.sin(direction) });
+      group.append(
+        svgElement("line", { x1: vertex.x, y1: vertex.y, x2: a.x, y2: a.y, class: lineClass }),
+        svgElement("line", { x1: vertex.x, y1: vertex.y, x2: b.x, y2: b.y, class: lineClass }),
+        svgElement("path", { d: `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${sweep} ${end.x} ${end.y}`, class: lineClass }),
+        dimensionTextNode(item, label, dimensionText(item, a, b))
+      );
+      dom.layers.dimensions.append(group);
+      continue;
+    }
+
+    if (kind === "radius" || kind === "diameter") {
+      const length = distance(a, b);
+      if (length < EPSILON) continue;
+      const nx = -(b.y - a.y) / length;
+      const ny = (b.x - a.x) / length;
+      const midpointPoint = midpoint(a, b);
+      const label = dimensionLabel(item, { x: midpointPoint.x + nx * 8 / currentScale(), y: midpointPoint.y + ny * 8 / currentScale() });
+      group.append(
+        svgElement("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: lineClass }),
+        svgElement("circle", { cx: a.x, cy: a.y, r: 2.5 / currentScale(), class: "dimension-line" }),
+        dimensionTextNode(item, label, dimensionText(item, a, b))
+      );
+      dom.layers.dimensions.append(group);
+      continue;
+    }
+
+    const length = distance(a, b);
+    if (length < EPSILON) continue;
+    const offset = Number.isFinite(item.offset) ? item.offset : 12;
+    let q1;
+    let q2;
+    let tickNormal;
+    if (kind === "horizontal") {
+      const y = (a.y + b.y) / 2 + offset;
+      q1 = { x: a.x, y };
+      q2 = { x: b.x, y };
+      tickNormal = { x: 0, y: 1 };
+    } else if (kind === "vertical") {
+      const x = (a.x + b.x) / 2 + offset;
+      q1 = { x, y: a.y };
+      q2 = { x, y: b.y };
+      tickNormal = { x: 1, y: 0 };
+    } else {
+      const nx = -(b.y - a.y) / length;
+      const ny = (b.x - a.x) / length;
+      q1 = { x: a.x + nx * offset, y: a.y + ny * offset };
+      q2 = { x: b.x + nx * offset, y: b.y + ny * offset };
+      tickNormal = { x: nx, y: ny };
+    }
+    const label = { x: (q1.x + q2.x) / 2, y: (q1.y + q2.y) / 2 - 5 / currentScale() };
     group.append(
-      svgElement("line", { x1: q1.x - nx * tick, y1: q1.y - ny * tick, x2: q1.x + nx * tick, y2: q1.y + ny * tick, class: "dimension-line" }),
-      svgElement("line", { x1: q2.x - nx * tick, y1: q2.y - ny * tick, x2: q2.x + nx * tick, y2: q2.y + ny * tick, class: "dimension-line" })
+      svgElement("line", { x1: a.x, y1: a.y, x2: q1.x, y2: q1.y, class: lineClass }),
+      svgElement("line", { x1: b.x, y1: b.y, x2: q2.x, y2: q2.y, class: lineClass }),
+      svgElement("line", { x1: q1.x, y1: q1.y, x2: q2.x, y2: q2.y, class: lineClass }),
+      svgElement("line", { x1: q1.x - tickNormal.x * tick, y1: q1.y - tickNormal.y * tick, x2: q1.x + tickNormal.x * tick, y2: q1.y + tickNormal.y * tick, class: "dimension-line" }),
+      svgElement("line", { x1: q2.x - tickNormal.x * tick, y1: q2.y - tickNormal.y * tick, x2: q2.x + tickNormal.x * tick, y2: q2.y + tickNormal.y * tick, class: "dimension-line" }),
+      dimensionTextNode(item, label, dimensionText(item, a, b))
     );
-    const text = svgElement("text", {
-      x: (q1.x + q2.x) / 2,
-      y: (q1.y + q2.y) / 2 - 5 / currentScale(),
-      class: "dimension-text",
-      "font-size": 12 / currentScale(),
-      "stroke-width": 4 / currentScale(),
-      "text-anchor": "middle"
-    });
-    text.textContent = `${item.prefix || ""}${formatLength(length)}`;
-    group.append(text);
     dom.layers.dimensions.append(group);
   }
 }
@@ -678,7 +778,16 @@ function entityBounds(entity) {
   const a = resolveRef(entity.a);
   const b = resolveRef(entity.b);
   if (!a || !b) return null;
-  return { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
+  const points = [a, b];
+  const vertex = resolveRef(entity.vertex);
+  if (vertex) points.push(vertex);
+  if (finitePoint(entity.label)) points.push(entity.label);
+  return {
+    minX: Math.min(...points.map(point => point.x)),
+    minY: Math.min(...points.map(point => point.y)),
+    maxX: Math.max(...points.map(point => point.x)),
+    maxY: Math.max(...points.map(point => point.y))
+  };
 }
 
 function selectionRect(a, b) {
@@ -696,7 +805,7 @@ function entitiesInsideSelection(a, b) {
 }
 
 function documentBounds() {
-  const all = state.document.shapes.map(shapeBounds).filter(Boolean);
+  const all = [...state.document.shapes.map(shapeBounds), ...state.document.dimensions.map(entityBounds)].filter(Boolean);
   if (!all.length) return { minX: -50, minY: -50, maxX: 450, maxY: 270 };
   return {
     minX: Math.min(...all.map(item => item.minX)),
@@ -831,13 +940,15 @@ function renderProperties() {
   if (entity.type === "dimension") {
     const a = resolveRef(entity.a);
     const b = resolveRef(entity.b);
+    const kind = dimensionKind(entity);
     form.append(
       propertyField("X1", "a.point.x", a.x, { disabled: Boolean(entity.a.ref) }),
       propertyField("Y1", "a.point.y", a.y, { disabled: Boolean(entity.a.ref) }),
       propertyField("X2", "b.point.x", b.x, { disabled: Boolean(entity.b.ref) }),
       propertyField("Y2", "b.point.y", b.y, { disabled: Boolean(entity.b.ref) })
     );
-    form.append(metricBlock(`ระยะตรง ${formatLength(distance(a, b))}\nΔX ${formatLength(Math.abs(b.x - a.x))} · ΔY ${formatLength(Math.abs(b.y - a.y))}`));
+    const labels = { aligned: "ระยะตรง", horizontal: "ระยะแนวนอน", vertical: "ระยะแนวตั้ง", angle: "มุม", radius: "รัศมี", diameter: "เส้นผ่านศูนย์กลาง" };
+    form.append(metricBlock(`${labels[kind]} ${dimensionText(entity, a, b)}\nΔX ${formatLength(Math.abs(b.x - a.x))} · ΔY ${formatLength(Math.abs(b.y - a.y))}`));
   }
   if (entity.construction) {
     const note = document.createElement("div");
@@ -1088,7 +1199,7 @@ function previewShape() {
   if (state.tool === "rectangle" && start) return { type: "rectangle", x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) };
   if (state.tool === "circle" && start) return { type: "circle", cx: start.x, cy: start.y, r: distance(start, end) };
   if (state.tool === "ellipse" && start) return { type: "ellipse", cx: start.x, cy: start.y, rx: Math.abs(end.x - start.x), ry: Math.abs(end.y - start.y) };
-  if (state.tool === "measure" && start) return { type: "dimension-preview", a: start, b: end };
+  if (state.tool === "measure" && start && state.measureKind !== "angle") return { type: "dimension-preview", kind: state.measureKind, a: start, b: end };
   if (state.tool === "perpendicular" && start) {
     const target = perpendicularTarget(state.pointer, start);
     if (target) return { type: "line", x1: start.x, y1: start.y, x2: target.point.x, y2: target.point.y };
@@ -1152,7 +1263,8 @@ function renderInteraction() {
   if (preview.type === "dimension-preview") {
     dom.layers.interaction.append(svgElement("line", { x1: preview.a.x, y1: preview.a.y, x2: preview.b.x, y2: preview.b.y, class: "guide" }));
     const label = svgElement("text", { x: (preview.a.x + preview.b.x) / 2, y: (preview.a.y + preview.b.y) / 2 - 6 / currentScale(), class: "dimension-text", "font-size": 12 / currentScale(), "stroke-width": 4 / currentScale(), "text-anchor": "middle" });
-    label.textContent = formatLength(distance(preview.a, preview.b));
+    const value = preview.kind === "horizontal" ? Math.abs(preview.b.x - preview.a.x) : preview.kind === "vertical" ? Math.abs(preview.b.y - preview.a.y) : distance(preview.a, preview.b);
+    label.textContent = `${preview.kind === "radius" ? "R " : preview.kind === "diameter" ? "⌀ " : ""}${formatLength(value)}`;
     dom.layers.interaction.append(label);
     return;
   }
@@ -1366,9 +1478,50 @@ function beginOperation(candidate) {
   announce("กำหนดจุดแรกแล้ว — เลือกจุดถัดไป");
 }
 
+function circleMeasurementAnchor(circle, anchor) {
+  const ref = { shapeId: circle.id, anchor };
+  return { ref, point: resolveRef({ ref }) };
+}
+
+function handleMeasurePoint(candidate) {
+  const kind = state.measureKind;
+  if (kind === "radius" || kind === "diameter") {
+    const circle = candidate.shapeType === "circle" ? findShape(candidate.shapeId) : circleTarget(state.pointer, 14);
+    if (!circle) return announce("เลือกวงกลมหรือขอบวงกลมเพื่อวัด");
+    const a = circleMeasurementAnchor(circle, kind === "radius" ? "center" : "quadrant-2");
+    const b = circleMeasurementAnchor(circle, "quadrant-0");
+    return commitEntity({ id: uid("dim"), type: "dimension", kind, a, b }, kind === "radius" ? "เพิ่มมิติรัศมีแล้ว" : "เพิ่มมิติเส้นผ่านศูนย์กลางแล้ว");
+  }
+
+  if (kind === "angle") {
+    if (!state.operation) {
+      state.operation = { measureKind: kind, vertex: anchorFromCandidate(candidate) };
+      return announce("กำหนดจุดยอดมุมแล้ว — เลือกจุดบนรังสีแรก");
+    }
+    if (!state.operation.a) {
+      if (distance(state.operation.vertex.point, candidate.point) < EPSILON) return announce("จุดบนรังสีแรกต้องไม่ซ้ำจุดยอด");
+      state.operation.a = anchorFromCandidate(candidate);
+      return announce("กำหนดรังสีแรกแล้ว — เลือกจุดบนรังสีที่สอง");
+    }
+    if (distance(state.operation.vertex.point, candidate.point) < EPSILON) return announce("จุดบนรังสีที่สองต้องไม่ซ้ำจุดยอด");
+    const b = anchorFromCandidate(candidate);
+    const a = state.operation.a;
+    const vertex = state.operation.vertex;
+    const cosine = ((a.point.x - vertex.point.x) * (b.point.x - vertex.point.x) + (a.point.y - vertex.point.y) * (b.point.y - vertex.point.y)) / (distance(a.point, vertex.point) * distance(b.point, vertex.point));
+    if (Math.abs(Math.abs(cosine) - 1) < 1e-8) return announce("รังสีทั้งสองต้องสร้างมุมที่ไม่เป็นเส้นตรง");
+    return commitEntity({ id: uid("dim"), type: "dimension", kind, vertex, a, b }, "เพิ่มมิติมุมแล้ว");
+  }
+
+  if (!state.operation) return beginOperation(candidate);
+  const start = state.operation.start.point;
+  if (distance(start, candidate.point) < EPSILON) return announce("จุดวัดต้องไม่ซ้ำกัน");
+  return commitEntity({ id: uid("dim"), type: "dimension", kind, a: state.operation.start, b: anchorFromCandidate(candidate) }, "เพิ่มระยะวัดแล้ว");
+}
+
 function handleToolPoint(candidate) {
   const p = candidate.point;
-  if (["line", "rectangle", "circle", "ellipse", "measure"].includes(state.tool)) {
+  if (state.tool === "measure") return handleMeasurePoint(candidate);
+  if (["line", "rectangle", "circle", "ellipse"].includes(state.tool)) {
     if (!state.operation) return beginOperation(candidate);
     const start = state.operation.start.point;
     if (state.tool === "line") {
@@ -1389,10 +1542,6 @@ function handleToolPoint(candidate) {
       const rx = Math.abs(p.x - start.x); const ry = Math.abs(p.y - start.y);
       if (rx < EPSILON || ry < EPSILON) return announce("วงรีต้องมีรัศมี X และ Y มากกว่า 0");
       return commitEntity({ id: uid("ellipse"), type: "ellipse", cx: start.x, cy: start.y, rx, ry }, "สร้างวงรีแล้ว");
-    }
-    if (state.tool === "measure") {
-      if (distance(start, p) < EPSILON) return announce("จุดวัดต้องไม่ซ้ำกัน");
-      return commitEntity({ id: uid("dim"), type: "dimension", a: state.operation.start, b: anchorFromCandidate(candidate) }, "เพิ่มระยะวัดแล้ว");
     }
   }
   if (state.tool === "perpendicular") {
@@ -1465,7 +1614,7 @@ function deleteSelected() {
   for (const shape of state.document.shapes) {
     if (shape.construction?.edgeShapeId && shapeIds.has(shape.construction.edgeShapeId)) delete shape.construction;
   }
-  state.document.dimensions = state.document.dimensions.filter(item => !ids.has(item.id) && !shapeIds.has(item.a?.ref?.shapeId) && !shapeIds.has(item.b?.ref?.shapeId));
+  state.document.dimensions = state.document.dimensions.filter(item => !ids.has(item.id) && !shapeIds.has(item.a?.ref?.shapeId) && !shapeIds.has(item.b?.ref?.shapeId) && !shapeIds.has(item.vertex?.ref?.shapeId));
   setSelection([]);
   pushHistory(before);
   renderAll();
@@ -1490,14 +1639,17 @@ function duplicateSelected() {
   const dimensionCopies = selectedDimensions.map(item => {
     const copy = clone(item);
     copy.id = uid("dim");
-    for (const key of ["a", "b"]) {
+    for (const key of ["a", "b", "vertex"]) {
+      if (!item[key]) continue;
       const resolved = resolveRef(item[key]);
+      if (!resolved) continue;
       const mappedShapeId = item[key].ref ? idMap.get(item[key].ref.shapeId) : null;
       copy[key] = {
         point: { x: resolved.x + 12, y: resolved.y + 12 },
         ...(mappedShapeId ? { ref: { ...item[key].ref, shapeId: mappedShapeId } } : {})
       };
     }
+    if (finitePoint(item.label)) copy.label = { x: item.label.x + 12, y: item.label.y + 12 };
     return copy;
   });
   pushHistory(before);
@@ -1526,6 +1678,7 @@ function setTool(tool) {
   dom.modeName.textContent = name;
   dom.modeHint.textContent = hint;
   dom.svg.style.cursor = tool === "select" ? "default" : "crosshair";
+  syncControls();
   renderInteraction();
   announce(hint);
 }
@@ -1548,6 +1701,8 @@ function syncControls() {
   dom.unitSelect.value = state.document.unit;
   dom.gridSize.value = formatNumber(toDisplay(state.document.gridMm), Math.min(3, state.document.gridMm < 1 ? 3 : 0));
   dom.documentName.value = state.document.name;
+  dom.measureMode.value = state.measureKind;
+  dom.measureModeWrap.hidden = state.tool !== "measure";
   document.querySelectorAll("[data-snap]").forEach(input => { input.checked = Boolean(state.document.snapOptions[input.dataset.snap]); });
   dom.toggleAllSnaps.textContent = Object.values(state.document.snapOptions).every(Boolean) ? "ปิดทั้งหมด" : "เปิดทั้งหมด";
 }
@@ -1588,14 +1743,35 @@ function dimensionSvg(item) {
   const a = resolveRef(item.a);
   const b = resolveRef(item.b);
   if (!a || !b) return "";
+  const kind = dimensionKind(item);
+  if (kind === "angle") {
+    const vertex = resolveRef(item.vertex);
+    const radians = dimensionAngle(item);
+    if (!vertex || radians === null) return "";
+    const startAngle = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+    const delta = Math.atan2(Math.sin(Math.atan2(b.y - vertex.y, b.x - vertex.x) - startAngle), Math.cos(Math.atan2(b.y - vertex.y, b.x - vertex.x) - startAngle));
+    const radius = item.radius || 20;
+    const endAngle = startAngle + delta;
+    const start = { x: vertex.x + radius * Math.cos(startAngle), y: vertex.y + radius * Math.sin(startAngle) };
+    const end = { x: vertex.x + radius * Math.cos(endAngle), y: vertex.y + radius * Math.sin(endAngle) };
+    const direction = startAngle + delta / 2;
+    const label = dimensionLabel(item, { x: vertex.x + (radius + 5) * Math.cos(direction), y: vertex.y + (radius + 5) * Math.sin(direction) });
+    return `<g fill="none" stroke="#d77f34" stroke-width="0.45"><line x1="${vertex.x}" y1="${vertex.y}" x2="${a.x}" y2="${a.y}"/><line x1="${vertex.x}" y1="${vertex.y}" x2="${b.x}" y2="${b.y}"/><path d="M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${delta > 0 ? 1 : 0} ${end.x} ${end.y}"/><text x="${label.x}" y="${label.y}" fill="#a8561c" stroke="none" text-anchor="middle" font-family="monospace" font-size="3.5">${escapeXml(dimensionText(item, a, b))}</text></g>`;
+  }
+  if (kind === "radius" || kind === "diameter") {
+    const middle = midpoint(a, b);
+    const length = Math.max(distance(a, b), EPSILON);
+    const label = dimensionLabel(item, { x: middle.x - (b.y - a.y) / length * 5, y: middle.y + (b.x - a.x) / length * 5 });
+    return `<g fill="none" stroke="#d77f34" stroke-width="0.45"><line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><text x="${label.x}" y="${label.y}" fill="#a8561c" stroke="none" text-anchor="middle" font-family="monospace" font-size="3.5">${escapeXml(dimensionText(item, a, b))}</text></g>`;
+  }
   const length = distance(a, b);
   const safeLength = Math.max(length, EPSILON);
   const nx = -(b.y - a.y) / safeLength;
   const ny = (b.x - a.x) / safeLength;
-  const offset = 8;
-  const q1 = { x: a.x + nx * offset, y: a.y + ny * offset };
-  const q2 = { x: b.x + nx * offset, y: b.y + ny * offset };
-  const label = escapeXml(`${item.prefix || ""}${formatLength(length)}`);
+  const offset = Number.isFinite(item.offset) ? item.offset : 12;
+  const q1 = kind === "horizontal" ? { x: a.x, y: (a.y + b.y) / 2 + offset } : kind === "vertical" ? { x: (a.x + b.x) / 2 + offset, y: a.y } : { x: a.x + nx * offset, y: a.y + ny * offset };
+  const q2 = kind === "horizontal" ? { x: b.x, y: (a.y + b.y) / 2 + offset } : kind === "vertical" ? { x: (a.x + b.x) / 2 + offset, y: b.y } : { x: b.x + nx * offset, y: b.y + ny * offset };
+  const label = escapeXml(dimensionText(item, a, b));
   return `<g fill="none" stroke="#d77f34" stroke-width="0.45"><line x1="${a.x}" y1="${a.y}" x2="${q1.x}" y2="${q1.y}"/><line x1="${b.x}" y1="${b.y}" x2="${q2.x}" y2="${q2.y}"/><line x1="${q1.x}" y1="${q1.y}" x2="${q2.x}" y2="${q2.y}"/><text x="${(q1.x + q2.x) / 2}" y="${(q1.y + q2.y) / 2 - 2}" fill="#a8561c" stroke="none" text-anchor="middle" font-family="monospace" font-size="3.5">${label}</text></g>`;
 }
 
@@ -1812,6 +1988,11 @@ function wireEvents() {
     state.document.name = event.target.value.slice(0, 80);
     scheduleAutosave();
   });
+  dom.measureMode.addEventListener("change", event => {
+    state.measureKind = event.target.value;
+    state.operation = null;
+    announce(`เลือกการวัด${dom.measureMode.selectedOptions[0].textContent}`);
+  });
   document.querySelectorAll("[data-snap]").forEach(input => input.addEventListener("change", () => {
     state.document.snapOptions[input.dataset.snap] = input.checked;
     scheduleAutosave();
@@ -1854,6 +2035,25 @@ function wireEvents() {
     }
     if (event.button !== 0) return;
     if (state.tool === "select") {
+      const labelId = event.target.closest?.("[data-dimension-label]")?.dataset.dimensionLabel;
+      const dimension = labelId ? state.document.dimensions.find(item => item.id === labelId) : null;
+      if (dimension) {
+        setSelection([dimension.id]);
+        state.hoverAngle = null;
+        state.drag = {
+          kind: "dimension-label",
+          id: dimension.id,
+          pointerId: event.pointerId,
+          start: p,
+          original: clone(dimension),
+          before: snapshot(),
+          moved: false
+        };
+        dom.svg.setPointerCapture(event.pointerId);
+        dom.svg.style.cursor = "move";
+        renderAll();
+        return;
+      }
       const endpoint = lineEndpointTarget(p);
       if (endpoint) {
         if (selectedEntityIds().length !== 1 || state.selectedId !== endpoint.line.id) setSelection([endpoint.line.id]);
@@ -1912,6 +2112,33 @@ function wireEvents() {
     const p = clientToWorld(event);
     state.pointer = p;
     if (state.drag) {
+      if (state.drag.kind === "dimension-label") {
+        updateSnap(p);
+        const dimension = state.document.dimensions.find(item => item.id === state.drag.id);
+        if (!dimension) return;
+        Object.assign(dimension, clone(state.drag.original));
+        const target = state.currentSnap.point;
+        const a = resolveRef(dimension.a);
+        const b = resolveRef(dimension.b);
+        if (!a || !b) return;
+        const kind = dimensionKind(dimension);
+        if (kind === "aligned") {
+          const length = distance(a, b);
+          if (length < EPSILON) return;
+          const normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
+          const middle = midpoint(a, b);
+          dimension.offset = (target.x - middle.x) * normal.x + (target.y - middle.y) * normal.y;
+        } else if (kind === "horizontal") {
+          dimension.offset = target.y - (a.y + b.y) / 2;
+        } else if (kind === "vertical") {
+          dimension.offset = target.x - (a.x + b.x) / 2;
+        } else {
+          dimension.label = { x: target.x, y: target.y };
+        }
+        state.drag.moved = distance(state.drag.start, target) > 1 / currentScale();
+        renderAll();
+        return;
+      }
       if (state.drag.kind === "endpoint") {
         updateSnap(p);
         const line = findShape(state.drag.id);
@@ -1981,6 +2208,7 @@ function wireEvents() {
     }
     if (state.drag) {
       const endpointDrag = state.drag.kind === "endpoint";
+      const labelDrag = state.drag.kind === "dimension-label";
       const line = endpointDrag ? findShape(state.drag.id) : null;
       if (endpointDrag && (!state.drag.moved || !line || distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }) < EPSILON)) {
         if (line) Object.assign(line, clone(state.drag.original));
@@ -1993,7 +2221,7 @@ function wireEvents() {
         if (state.history.length > MAX_HISTORY) state.history.shift();
         state.future = [];
         scheduleAutosave();
-        announce(endpointDrag ? "ปรับตำแหน่งปลายเส้นแล้ว" : `ย้าย ${state.drag.ids.length} วัตถุแล้ว`);
+        announce(endpointDrag ? "ปรับตำแหน่งปลายเส้นแล้ว" : labelDrag ? "ย้ายตำแหน่งค่าที่วัดแล้ว" : `ย้าย ${state.drag.ids.length} วัตถุแล้ว`);
       }
       state.drag = null;
       state.currentSnap = null;

@@ -68,6 +68,16 @@
       <section class="canvas-panel" aria-label="พื้นที่วาด">
         <div class="canvas-toolbar">
           <div class="mode-indicator"><span class="mode-dot"></span><strong id="modeName">เลือก</strong><span id="modeHint">คลิกวัตถุเพื่อแก้ไข</span></div>
+          <label id="measureModeWrap" class="measure-mode" hidden>ชนิดวัด
+            <select id="measureMode" aria-label="ชนิดการวัด">
+              <option value="aligned">ระยะตรง</option>
+              <option value="horizontal">ระยะแนวนอน</option>
+              <option value="vertical">ระยะแนวตั้ง</option>
+              <option value="angle">มุม</option>
+              <option value="radius">รัศมี</option>
+              <option value="diameter">เส้นผ่านศูนย์กลาง</option>
+            </select>
+          </label>
           <form id="coordinateForm" class="coordinate-form" aria-label="ป้อนพิกัดที่แน่นอน">
             <label>X <input id="exactX" type="number" step="any" value="0" aria-label="พิกัด X"></label>
             <label>Y <input id="exactY" type="number" step="any" value="0" aria-label="พิกัด Y"></label>
@@ -145,6 +155,8 @@
         <li>เลือกเครื่องมือ แล้วคลิกตำแหน่งเริ่มและสิ้นสุดบนพื้นที่วาด</li>
         <li>พิมพ์พิกัด X/Y แล้วกด “วางจุด” เมื่อต้องการค่าที่แน่นอน</li>
         <li>กด Tab เพื่อสลับจุด Snap ที่อยู่ใกล้กัน และ Esc เพื่อกลับสู่โหมดเลือก</li>
+        <li>เครื่องมือวัดเลือกได้ทั้งระยะตรง แนวนอน แนวตั้ง มุม รัศมี และเส้นผ่านศูนย์กลาง; ค่าที่วัดจะตามจุด Snap หรือวัตถุอ้างอิง</li>
+        <li>ในโหมดเลือก ลากข้อความสีส้มของมิติเพื่อจัดตำแหน่งการแสดงผล โดยไม่เปลี่ยนค่าที่วัด</li>
         <li>ในโหมดเลือก ชี้ใกล้เส้นหรือขอบสี่เหลี่ยมเพื่อดูมุมเทียบกับแนวนอน</li>
         <li>ลากจากพื้นที่ว่างเพื่อคลุมและเลือกหลายวัตถุ จากนั้นลาก ลบ หรือทำสำเนาเป็นชุดได้</li>
         <li>เลือกวัตถุเพื่อแก้ค่าพิกัดหรือขนาดจากแผงคุณสมบัติ</li>
