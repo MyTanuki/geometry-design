@@ -948,6 +948,16 @@ function addCandidate(list, p, candidate, tolerance) {
   if (d <= tolerance) list.push({ ...candidate, distance: d });
 }
 
+function dragSnapOrigin() {
+  if (!state.drag) return null;
+  if (state.drag.kind === "endpoint") {
+    return state.drag.endpoint === 0
+      ? { x: state.drag.original.x2, y: state.drag.original.y2 }
+      : { x: state.drag.original.x1, y: state.drag.original.y1 };
+  }
+  return state.drag.start;
+}
+
 function collectSnapCandidates(p) {
   const options = state.document.snapOptions;
   const tolerance = SNAP_TOLERANCE_PX / currentScale();
@@ -961,8 +971,9 @@ function collectSnapCandidates(p) {
       type: "grid"
     }, tolerance);
   }
+  const draggedIds = new Set(state.drag?.kind === "translate" ? state.drag.ids : state.drag?.id ? [state.drag.id] : []);
   const nearbyShapes = state.document.shapes.filter(shape => {
-    if (state.drag?.id === shape.id) return false;
+    if (draggedIds.has(shape.id)) return false;
     const bounds = shapeBounds(shape);
     return bounds && distanceToBounds(p, bounds) <= tolerance * 2;
   });
@@ -1003,13 +1014,15 @@ function collectSnapCandidates(p) {
       if (options.edge) addCandidate(candidates, p, { point: nearestPointOnEllipse(p, { x: shape.cx, y: shape.cy }, shape.rx, shape.ry), type: "edge", shapeId: shape.id }, tolerance);
     }
   }
-  const start = state.operation?.start?.point;
-  if (start && options.orthogonal && ["line", "measure"].includes(state.tool)) {
+  const start = state.operation?.start?.point || dragSnapOrigin();
+  const supportsDragSnap = Boolean(state.drag);
+  if (start && options.orthogonal && (supportsDragSnap || ["line", "measure"].includes(state.tool))) {
     addCandidate(candidates, p, { point: { x: p.x, y: start.y }, type: "horizontal" }, tolerance);
     addCandidate(candidates, p, { point: { x: start.x, y: p.y }, type: "vertical" }, tolerance);
   }
-  if (start && options.perpendicular && ["line", "perpendicular"].includes(state.tool)) {
+  if (start && options.perpendicular && (supportsDragSnap || ["line", "perpendicular"].includes(state.tool))) {
     for (const shape of state.document.shapes) {
+      if (draggedIds.has(shape.id)) continue;
       for (const segment of shapeSegments(shape)) {
         const projected = projectPointToSegment(start, segment.a, segment.b);
         addCandidate(candidates, p, { point: projected.point, type: "perpendicular", shapeId: shape.id, edge: segment.edge }, tolerance * 2.5);
@@ -1104,7 +1117,7 @@ function renderInteraction() {
     }));
   }
   const snap = state.currentSnap;
-  if (snap?.type && (state.tool !== "select" || state.drag?.kind === "endpoint")) {
+  if (snap?.type && (state.tool !== "select" || state.drag)) {
     const size = 7 / currentScale();
     const marker = snap.type === "center" || snap.type === "quadrant"
       ? svgElement("circle", { cx: snap.point.x, cy: snap.point.y, r: size / 2, class: "snap-marker" })
@@ -1921,8 +1934,10 @@ function wireEvents() {
         renderAll();
         return;
       }
-      const dx = p.x - state.drag.start.x;
-      const dy = p.y - state.drag.start.y;
+      updateSnap(p);
+      const target = state.currentSnap.point;
+      const dx = target.x - state.drag.start.x;
+      const dy = target.y - state.drag.start.y;
       if (Math.hypot(dx, dy) > 1 / currentScale()) state.drag.moved = true;
       for (const original of state.drag.originals) {
         const entity = findEntity(original.id);
